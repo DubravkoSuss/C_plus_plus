@@ -1,70 +1,114 @@
 #include <windows.h>
+#include <setupapi.h>
+#include <devguid.h>
+#include <iostream>
+#include <fstream>
+#include <initguid.h>
+#include <string>
+#include <cfgmgr32.h>
+#include <thread>
+#include <chrono>
 
-// Function prototype
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+#pragma comment(lib, "Setupapi.lib")
+#pragma comment(lib, "Cfgmgr32.lib")
 
-// Entry point of the program
-int main() {
-    // Define the window class
-    const wchar_t CLASS_NAME[] = L"SimpleWindowClass"; // Use wide-character strings
-
-    WNDCLASS wc = {};
-    wc.lpfnWndProc = WindowProc; // Set window procedure
-    wc.hInstance = GetModuleHandle(nullptr);
-    wc.lpszClassName = CLASS_NAME;
-
-    // Register the window class
-    RegisterClass(&wc);
-
-    // Create the window
-    HWND hwnd = CreateWindowEx(
-        0,                          // Optional window styles
-        CLASS_NAME,                 // Window class name
-        L"Simple C++ GUI",          // Window title (use wide-character)
-        WS_OVERLAPPEDWINDOW,        // Window style
-        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-        nullptr, nullptr, wc.hInstance, nullptr
-    );
-
-    if (hwnd == nullptr) {
-        return 0;
+void DisableUSBPort(const std::wstring& deviceInstanceId) {
+    DEVINST devInst;
+    CONFIGRET status = CM_Locate_DevNode(&devInst, const_cast<wchar_t*>(deviceInstanceId.c_str()), CM_LOCATE_DEVNODE_NORMAL);
+    if (status != CR_SUCCESS) {
+        std::wcerr << L"Failed to locate device node: " << deviceInstanceId << std::endl;
+        return;
     }
 
-    // Create a button inside the window
-    CreateWindow(
-        L"BUTTON",                  // Predefined class; the button control
-        L"Click Me",                // Button text (wide-character)
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,  // Button style
-        50, 50, 100, 40,            // Position and size
-        hwnd, nullptr, wc.hInstance, nullptr
-    );
-
-    // Show the window
-    ShowWindow(hwnd, SW_SHOWNORMAL);
-    UpdateWindow(hwnd);
-
-    // Message loop to keep the window open
-    MSG msg = {};
-    while (GetMessage(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+    status = CM_Disable_DevNode(devInst, 0);
+    if (status != CR_SUCCESS) {
+        std::wcerr << L"Failed to disable device: " << deviceInstanceId << std::endl;
     }
-
-    return 0;
+    else {
+        std::wcout << L"Device disabled: " << deviceInstanceId << std::endl;
+    }
 }
 
-// Window procedure function to handle messages
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    case WM_COMMAND:
-        if (LOWORD(wParam) == BN_CLICKED) {
-            MessageBox(hwnd, L"Button Clicked!", L"Info", MB_OK); // Use wide-character strings
-        }
-        return 0;
-    default:
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+void EnableUSBPort(const std::wstring& deviceInstanceId) {
+    DEVINST devInst;
+    CONFIGRET status = CM_Locate_DevNode(&devInst, const_cast<wchar_t*>(deviceInstanceId.c_str()), CM_LOCATE_DEVNODE_NORMAL);
+    if (status != CR_SUCCESS) {
+        std::wcerr << L"Failed to locate device node: " << deviceInstanceId << std::endl;
+        return;
     }
+
+    status = CM_Enable_DevNode(devInst, 0);
+    if (status != CR_SUCCESS) {
+        std::wcerr << L"Failed to enable device: " << deviceInstanceId << std::endl;
+    }
+    else {
+        std::wcout << L"Device enabled: " << deviceInstanceId << std::endl;
+    }
+}
+
+void ListUSBPorts() {
+    // Open a text file to write USB port information
+    std::ofstream outputFile("USBPorts.txt", std::ios::app); // Append mode
+    if (!outputFile.is_open()) {
+        std::cerr << "Failed to open USBPorts.txt for writing." << std::endl;
+        return;
+    }
+
+    // Get the device information set for all USB devices
+    HDEVINFO deviceInfoSet = SetupDiGetClassDevs(
+        &GUID_DEVCLASS_USB, // Use USB class GUID instead of interface GUID
+        NULL,
+        NULL,
+        DIGCF_PRESENT | DIGCF_ALLCLASSES);
+
+    if (deviceInfoSet == INVALID_HANDLE_VALUE) {
+        std::cerr << "Failed to get device info set for USB devices." << std::endl;
+        outputFile.close();
+        return;
+    }
+
+    SP_DEVINFO_DATA devInfoData;
+    devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+    for (int i = 0; SetupDiEnumDeviceInfo(deviceInfoSet, i, &devInfoData); i++) {
+        // Get the device instance ID
+        TCHAR deviceID[MAX_PATH];
+        if (SetupDiGetDeviceInstanceId(deviceInfoSet, &devInfoData, deviceID, MAX_PATH, NULL)) {
+            // Convert to a std::wstring for easier processing
+            std::wstring deviceIDString(deviceID);
+
+            // Check if it starts with "USB"
+            if (deviceIDString.rfind(L"USB", 0) == 0) { // rfind with 0 checks the prefix
+                std::wcout << L"USB Port: " << deviceIDString.c_str() << std::endl; // Display in CMD
+                outputFile << std::string(deviceIDString.begin(), deviceIDString.end()) << std::endl; // Write to file
+
+                // Disable the USB port
+                DisableUSBPort(deviceIDString);
+
+                // Wait for 5 seconds
+                std::this_thread::sleep_for(std::chrono::seconds(3));
+
+                // Re-enable the USB port
+                EnableUSBPort(deviceIDString);
+            }
+        }
+        else {
+            DWORD error = GetLastError();
+            std::cerr << "Error retrieving device instance ID. Error code: " << error << std::endl;
+        }
+    }
+
+    // Clean up
+    SetupDiDestroyDeviceInfoList(deviceInfoSet);
+    outputFile.close();
+
+    std::cout << "USB ports have been listed in USBPorts.txt" << std::endl;
+}
+
+int main() {
+    ListUSBPorts();
+
+    std::cout << "Press Enter to exit...";
+    std::cin.get(); // Pause to keep the console window open
+    return 0;
 }
