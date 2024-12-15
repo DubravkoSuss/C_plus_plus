@@ -1,0 +1,70 @@
+#include <windows.h>
+
+// Function prototype
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+// Entry point of the program
+int main() {
+    // Define the window class
+    const wchar_t CLASS_NAME[] = L"SimpleWindowClass"; // Use wide-character strings
+
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = WindowProc; // Set window procedure
+    wc.hInstance = GetModuleHandle(nullptr);
+    wc.lpszClassName = CLASS_NAME;
+
+    // Register the window class
+    RegisterClass(&wc);
+
+    // Create the window
+    HWND hwnd = CreateWindowEx(
+        0,                          // Optional window styles
+        CLASS_NAME,                 // Window class name
+        L"Simple C++ GUI",          // Window title (use wide-character)
+        WS_OVERLAPPEDWINDOW,        // Window style
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+        nullptr, nullptr, wc.hInstance, nullptr
+    );
+
+    if (hwnd == nullptr) {
+        return 0;
+    }
+
+    // Create a button inside the window
+    CreateWindow(
+        L"BUTTON",                  // Predefined class; the button control
+        L"Click Me",                // Button text (wide-character)
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,  // Button style
+        50, 50, 100, 40,            // Position and size
+        hwnd, nullptr, wc.hInstance, nullptr
+    );
+
+    // Show the window
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    UpdateWindow(hwnd);
+
+    // Message loop to keep the window open
+    MSG msg = {};
+    while (GetMessage(&msg, nullptr, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    return 0;
+}
+
+// Window procedure function to handle messages
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == BN_CLICKED) {
+            MessageBox(hwnd, L"Button Clicked!", L"Info", MB_OK); // Use wide-character strings
+        }
+        return 0;
+    default:
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+}
